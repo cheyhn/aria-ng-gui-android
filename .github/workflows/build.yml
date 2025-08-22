@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04  # 使用稍旧但更稳定的Ubuntu版本
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.1.7
@@ -16,31 +16,31 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4.0.3
         with:
-          node-version: 20.x
+          node-version: 18.x  # 使用更稳定的Node.js版本
           cache: 'npm'
 
       - name: Install dependencies
         run: |
           npm install
-          npm install -g cordova@12.0.0
+          npm install -g cordova@11.0.0  # 使用稍旧但更兼容的Cordova版本
 
-      - name: Set up Java (JDK 8)
+      - name: Set up Java (JDK 11)
         uses: actions/setup-java@v4.2.1
         with:
-          java-version: '8'  # 切换到Cordova兼容的JDK 8
+          java-version: '11'  # JDK 11兼容大多数工具
           distribution: 'temurin'
           cache: 'gradle'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3.2.0
         with:
-          cmdline-tools-version: 11076708
+          cmdline-tools-version: 7583922  # 使用较旧的cmdline-tools，兼容JDK 11
           accept-android-sdk-licenses: true
           packages: 
             tools
             platform-tools
-            build-tools;35.0.0
-            platforms;android-35
+            build-tools;33.0.1  # 使用稍旧的build-tools版本
+            platforms;android-33
             extras;android;m2repository
             extras;google;m2repository
 
@@ -48,8 +48,8 @@ jobs:
         run: |
           sdkmanager "tools"
           sdkmanager "platform-tools"
-          sdkmanager "build-tools;35.0.0"
-          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;33.0.1"
+          sdkmanager "platforms;android-33"
           sdkmanager "extras;android;m2repository"
           sdkmanager "extras;google;m2repository"
         env:
@@ -60,22 +60,21 @@ jobs:
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
-          echo "$ANDROID_HOME/build-tools/35.0.0" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/build-tools/33.0.1" >> $GITHUB_PATH
 
-      - name: Verify Android installation
+      - name: Verify environment
         run: |
-          sdkmanager --list_installed
+          sdkmanager --version
           adb --version
-          aapt2 version
-          java -version  # 验证Java版本
+          java -version
+          cordova --version
 
       - name: Prepare Cordova project
         run: |
           chmod +x tools/init.sh
           ./tools/init.sh
           cordova platform remove android
-          # 使用与JDK 8兼容的Android平台版本
-          cordova platform add android@9.1.0
+          cordova platform add android@10.1.2  # 与JDK 11兼容的版本
           cordova requirements android
 
       - name: Build Release APK

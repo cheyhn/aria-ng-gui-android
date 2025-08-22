@@ -3,82 +3,111 @@ name: Build and Release Android APK
 on:
   push:
     tags:
-      - 'v*'  # 推送v开头标签触发（如v1.0.0）
-  workflow_dispatch:  # 支持手动触发（测试用）
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # 使用最新的Ubuntu版本
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.7  # 最新版本
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.0.3  # 最新版本
         with:
-          node-version: 18  # 适配Cordova最新依赖
-          cache: 'npm'      # 缓存npm依赖，加速安装
+          node-version: 20.x  # 使用最新LTS版本
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
 
       - name: Install dependencies
         run: |
           npm install
-          npm install -g cordova  # 全局安装Cordova构建工具
+          npm install -g cordova@12.0.0  # 最新稳定版Cordova
 
-      - name: Set up Java (JDK 17)
-        uses: actions/setup-java@v4
+      - name: Set up Java (JDK 21)
+        uses: actions/setup-java@v4.2.1  # 最新版本
         with:
-          java-version: '17'  # 适配Android SDK 16.0+工具要求
+          java-version: '21'  # 使用最新LTS版本
           distribution: 'temurin'
-          cache: 'gradle'     # 缓存Gradle依赖，加速Android构建
+          cache: 'gradle'
 
-      - name: Set up Android SDK (修复包名格式)
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3.2.0  # 最新版本
         with:
-          # 关键修复：每个工具包单独一行，符合sdkmanager格式要求
+          cmdline-tools-version: 11076708  # 最新命令行工具版本
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: true
+          # 明确指定所需的Android组件，使用最新稳定版本
           packages: |
             tools
             platform-tools
-            build-tools;34.0.0
-            platforms;android-34
-          # 自动接受许可证（无需手动交互）
-          accept-android-sdk-licenses: true
-        env:
-          # 备选：若仍有JDK版本校验问题，可取消注释启用
-          # SKIP_JDK_VERSION_CHECK: true
+            build-tools;35.0.0
+            platforms;android-35
+            patcher;v4
+            extras;android;m2repository
+            extras;google;m2repository
 
-      - name: Prepare Cordova environment
+      - name: Configure Android SDK environment
         run: |
-          # 确保初始化脚本可执行
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/build-tools/35.0.0" >> $GITHUB_PATH
+
+      - name: Verify Android environment
+        run: |
+          sdkmanager --version
+          adb --version
+          aapt2 version
+
+      - name: Prepare Cordova project
+        run: |
           chmod +x tools/init.sh
-          # 执行初始化（添加Android平台、插件等）
           ./tools/init.sh
-          # 验证Android平台是否添加成功
-          cordova platform list
+          cordova platform remove android
+          cordova platform add android@13.0.0  # 最新Android平台
+          cordova requirements android
 
       - name: Build Release APK
         run: |
-          # 执行项目定义的编译命令（生成release版APK）
-          npm run buildApk
-          # 验证APK是否生成（方便排查产物缺失问题）
+          cordova build android --release -- --gradleArg=-PcdvBuildMultipleApks=false
           ls -la platforms/android/app/build/outputs/apk/release/
+
+      - name: Sign APK
+        if: success()
+        run: |
+          # 创建签名密钥
+          keytool -genkeypair \
+            -keystore release.keystore \
+            -alias release \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
+            -keypass ${{ secrets.KEY_PASSWORD }} \
+            -dname "CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown"
+          
+          # 签名APK
+          apksigner sign \
+            --ks release.keystore \
+            --ks-key-alias release \
+            --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
+            --key-pass pass:${{ secrets.KEY_PASSWORD }} \
+            platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          
+          # 重命名签名后的APK
+          mv platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk \
+             platforms/android/app/build/outputs/apk/release/app-release-signed.apk
 
       - name: Create GitHub Release
         id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub自动注入的授权令牌
-        with:
-          tag_name: ${{ github.ref }}                # 用触发流程的标签名（如v1.0.0）
-          release_name: Release ${{ github.ref_name }}# 发布标题（如Release v1.0.0）
-          draft: false                               # 不设为草稿（直接发布）
-          prerelease: false                          # 不设为预发布
-
-      - name: Upload APK to Release
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v2.0.8  # 更可靠的release动作
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}  # 从创建发布步骤获取上传地址
-          asset_path: platforms/android/app/build/outputs/apk/release/app-release.apk  # APK实际路径
-          asset_name: aria-ng-gui-${{ github.ref_name }}.apk  # 发布页显示的APK文件名（带版本号）
-          asset_content_type: application/vnd.android.package-archive  # APK标准MIME类型
+          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: platforms/android/app/build/outputs/apk/release/app-release-signed.apk

@@ -8,38 +8,36 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04  # 使用最新的Ubuntu版本
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4.1.7  # 最新版本
+        uses: actions/checkout@v4.1.7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4.0.3  # 最新版本
+        uses: actions/setup-node@v4.0.3
         with:
-          node-version: 20.x  # 使用最新LTS版本
+          node-version: 20.x
           cache: 'npm'
-          cache-dependency-path: '**/package-lock.json'
 
       - name: Install dependencies
         run: |
           npm install
-          npm install -g cordova@12.0.0  # 最新稳定版Cordova
+          npm install -g cordova@12.0.0
 
-      - name: Set up Java (JDK 21)
-        uses: actions/setup-java@v4.2.1  # 最新版本
+      - name: Set up Java (JDK 17)
+        uses: actions/setup-java@v4.2.1
         with:
-          java-version: '21'  # 使用最新LTS版本
+          java-version: '17'
           distribution: 'temurin'
           cache: 'gradle'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3.2.0  # 最新版本
+        uses: android-actions/setup-android@v3.2.0
         with:
-          cmdline-tools-version: 11076708  # 最新命令行工具版本
+          cmdline-tools-version: 11076708
           accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: true
-          # 明确指定所需的Android组件，使用最新稳定版本
-          packages: |
+          # 关键修复：使用正确的包名格式，每个包单独一行且无多余空格
+          packages: 
             tools
             platform-tools
             build-tools;35.0.0
@@ -48,16 +46,29 @@ jobs:
             extras;android;m2repository
             extras;google;m2repository
 
-      - name: Configure Android SDK environment
+      - name: Manually install missing packages (fallback)
+        run: |
+          # 手动安装每个包，确保命令正确解析
+          sdkmanager "tools"
+          sdkmanager "platform-tools"
+          sdkmanager "build-tools;35.0.0"
+          sdkmanager "platforms;android-35"
+          sdkmanager "patcher;v4"
+          sdkmanager "extras;android;m2repository"
+          sdkmanager "extras;google;m2repository"
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+
+      - name: Configure Android environment
         run: |
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
           echo "$ANDROID_HOME/build-tools/35.0.0" >> $GITHUB_PATH
 
-      - name: Verify Android environment
+      - name: Verify Android installation
         run: |
-          sdkmanager --version
+          sdkmanager --list_installed
           adb --version
           aapt2 version
 
@@ -66,7 +77,7 @@ jobs:
           chmod +x tools/init.sh
           ./tools/init.sh
           cordova platform remove android
-          cordova platform add android@13.0.0  # 最新Android平台
+          cordova platform add android@13.0.0
           cordova requirements android
 
       - name: Build Release APK
@@ -77,7 +88,6 @@ jobs:
       - name: Sign APK
         if: success()
         run: |
-          # 创建签名密钥
           keytool -genkeypair \
             -keystore release.keystore \
             -alias release \
@@ -88,7 +98,6 @@ jobs:
             -keypass ${{ secrets.KEY_PASSWORD }} \
             -dname "CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown"
           
-          # 签名APK
           apksigner sign \
             --ks release.keystore \
             --ks-key-alias release \
@@ -96,13 +105,12 @@ jobs:
             --key-pass pass:${{ secrets.KEY_PASSWORD }} \
             platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
           
-          # 重命名签名后的APK
           mv platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk \
              platforms/android/app/build/outputs/apk/release/app-release-signed.apk
 
       - name: Create GitHub Release
         id: create_release
-        uses: softprops/action-gh-release@v2.0.8  # 更可靠的release动作
+        uses: softprops/action-gh-release@v2.0.8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

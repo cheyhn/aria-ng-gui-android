@@ -2,8 +2,9 @@ name: Build and Release Android APK
 
 on:
   push:
-    tags:  # 只在推送标签时触发（例如 v1.0.0）
-      - 'v*'  # 匹配 v 开头的标签，如 v1.0.0、v2.1.1
+    tags:
+      - 'v*'  # 推送v开头的标签时触发（如v1.0.0）
+  workflow_dispatch:  # 支持手动触发
 
 jobs:
   build:
@@ -16,48 +17,62 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 14
+          node-version: 18  # 升级Node.js版本以提高兼容性
+          cache: 'npm'      # 缓存npm依赖加速构建
 
       - name: Install dependencies
         run: |
           npm install
           npm install -g cordova
 
-      - name: Set up Java
+      - name: Set up Java (JDK 17)
         uses: actions/setup-java@v4
         with:
-          java-version: '11'
+          java-version: '17'  # 关键更新：使用JDK 17适配Android SDK工具
           distribution: 'temurin'
+          cache: 'gradle'     # 缓存Gradle依赖
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # 明确指定需要的Android工具包
+          packages: |
+            tools
+            platform-tools
+            build-tools;34.0.0  # 使用较新的构建工具版本
+            platforms;android-34  # 目标Android版本
 
       - name: Prepare Cordova environment
         run: |
           chmod +x tools/init.sh
           ./tools/init.sh
+          # 确保Android平台正确添加
+          cordova platform list
 
       - name: Build APK
         run: |
+          # 构建发布版本APK
           npm run buildApk
+          # 验证APK文件是否生成
+          ls -la platforms/android/app/build/outputs/apk/release/
 
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub自动提供的令牌，无需手动配置
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}  # 使用触发工作流的标签（如 v1.0.0）
-          release_name: Release ${{ github.ref_name }}  # 发布名称（如 Release v1.0.0）
-          draft: false  # 不设为草稿
-          prerelease: false  # 不设为预发布
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
 
       - name: Upload APK to Release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}  # 从创建发布步骤获取上传URL
-          asset_path: platforms/android/app/build/outputs/apk/release/app-release.apk  # APK路径（需与实际编译输出一致）
-          asset_name: aria-ng-gui-${{ github.ref_name }}.apk  # 发布中显示的文件名（如 aria-ng-gui-v1.0.0.apk）
-          asset_content_type: application/vnd.android.package-archive  # APK的MIME类型
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: platforms/android/app/build/outputs/apk/release/app-release.apk
+          asset_name: aria-ng-gui-${{ github.ref_name }}.apk
+          asset_content_type: application/vnd.android.package-archive

@@ -3,13 +3,12 @@ name: Build and Release Android APK
 on:
   push:
     tags:
-      - 'v*'  # 推送v开头的标签时触发（如v1.0.0）
-  workflow_dispatch:  # 支持手动触发
+      - 'v*'  # 推送v开头标签触发（如v1.0.0）
+  workflow_dispatch:  # 支持手动触发（测试用）
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -17,62 +16,69 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18  # 升级Node.js版本以提高兼容性
-          cache: 'npm'      # 缓存npm依赖加速构建
+          node-version: 18  # 适配Cordova最新依赖
+          cache: 'npm'      # 缓存npm依赖，加速安装
 
       - name: Install dependencies
         run: |
           npm install
-          npm install -g cordova
+          npm install -g cordova  # 全局安装Cordova构建工具
 
       - name: Set up Java (JDK 17)
         uses: actions/setup-java@v4
         with:
-          java-version: '17'  # 关键更新：使用JDK 17适配Android SDK工具
+          java-version: '17'  # 适配Android SDK 16.0+工具要求
           distribution: 'temurin'
-          cache: 'gradle'     # 缓存Gradle依赖
+          cache: 'gradle'     # 缓存Gradle依赖，加速Android构建
 
-      - name: Set up Android SDK
+      - name: Set up Android SDK (修复包名格式)
         uses: android-actions/setup-android@v3
         with:
-          # 明确指定需要的Android工具包
+          # 关键修复：每个工具包单独一行，符合sdkmanager格式要求
           packages: |
             tools
             platform-tools
-            build-tools;34.0.0  # 使用较新的构建工具版本
-            platforms;android-34  # 目标Android版本
+            build-tools;34.0.0
+            platforms;android-34
+          # 自动接受许可证（无需手动交互）
+          accept-android-sdk-licenses: true
+        env:
+          # 备选：若仍有JDK版本校验问题，可取消注释启用
+          # SKIP_JDK_VERSION_CHECK: true
 
       - name: Prepare Cordova environment
         run: |
+          # 确保初始化脚本可执行
           chmod +x tools/init.sh
+          # 执行初始化（添加Android平台、插件等）
           ./tools/init.sh
-          # 确保Android平台正确添加
+          # 验证Android平台是否添加成功
           cordova platform list
 
-      - name: Build APK
+      - name: Build Release APK
         run: |
-          # 构建发布版本APK
+          # 执行项目定义的编译命令（生成release版APK）
           npm run buildApk
-          # 验证APK文件是否生成
+          # 验证APK是否生成（方便排查产物缺失问题）
           ls -la platforms/android/app/build/outputs/apk/release/
 
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub自动注入的授权令牌
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+          tag_name: ${{ github.ref }}                # 用触发流程的标签名（如v1.0.0）
+          release_name: Release ${{ github.ref_name }}# 发布标题（如Release v1.0.0）
+          draft: false                               # 不设为草稿（直接发布）
+          prerelease: false                          # 不设为预发布
 
       - name: Upload APK to Release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: platforms/android/app/build/outputs/apk/release/app-release.apk
-          asset_name: aria-ng-gui-${{ github.ref_name }}.apk
-          asset_content_type: application/vnd.android.package-archive
+          upload_url: ${{ steps.create_release.outputs.upload_url }}  # 从创建发布步骤获取上传地址
+          asset_path: platforms/android/app/build/outputs/apk/release/app-release.apk  # APK实际路径
+          asset_name: aria-ng-gui-${{ github.ref_name }}.apk  # 发布页显示的APK文件名（带版本号）
+          asset_content_type: application/vnd.android.package-archive  # APK标准MIME类型

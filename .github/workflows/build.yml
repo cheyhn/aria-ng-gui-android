@@ -36,24 +36,22 @@ jobs:
         with:
           cmdline-tools-version: 11076708
           accept-android-sdk-licenses: true
-          # 关键修复：使用正确的包名格式，每个包单独一行且无多余空格
+          # 移除了patcher;v4包，该包在最新SDK中可能已不存在
           packages: 
             tools
             platform-tools
             build-tools;35.0.0
             platforms;android-35
-            patcher;v4
             extras;android;m2repository
             extras;google;m2repository
 
-      - name: Manually install missing packages (fallback)
+      - name: Manually install SDK packages
         run: |
-          # 手动安装每个包，确保命令正确解析
+          # 手动安装每个包，不包含有问题的patcher;v4
           sdkmanager "tools"
           sdkmanager "platform-tools"
           sdkmanager "build-tools;35.0.0"
           sdkmanager "platforms;android-35"
-          sdkmanager "patcher;v4"
           sdkmanager "extras;android;m2repository"
           sdkmanager "extras;google;m2repository"
         env:
